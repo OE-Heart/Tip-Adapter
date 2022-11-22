@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 
 import clip
+import faiss
 
 
 def cls_acc(output, target, topk=1):
@@ -70,6 +71,18 @@ def build_cache_model(cfg, clip_model, train_loader_cache):
 
     return cache_keys, cache_values
 
+def build_knn_datastore(cfg, cache_keys, cache_values):
+
+    if cfg['knn_mode'] == True:
+        cache_keys = cache_keys.permute(1, 0)
+        n, d = cache_keys.shape[0], cache_keys.shape[1]
+        index = faiss.IndexFlatIP(d)
+        index.add(cache_keys.cpu().numpy())
+
+    else:
+        index = None
+
+    return index
 
 def pre_load_features(cfg, split, clip_model, loader):
 

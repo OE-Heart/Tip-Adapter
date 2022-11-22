@@ -200,9 +200,9 @@ class ImageNet():
                                             ])
         test_preprocess = preprocess
 
-        self.train = torchvision.datasets.ImageNet(self.image_dir, split='train', transform=train_preprocess)
-        self.val = torchvision.datasets.ImageNet(self.image_dir, split='val', transform=test_preprocess)
-        self.test = torchvision.datasets.ImageNet(self.image_dir, split='val', transform=test_preprocess)
+        self.train = torchvision.datasets.ImageFolder(os.path.join(self.image_dir, 'train'), transform=train_preprocess)
+        self.val = torchvision.datasets.ImageFolder(os.path.join(self.image_dir, 'val'), transform=test_preprocess)
+        self.test = torchvision.datasets.ImageFolder(os.path.join(self.image_dir, 'val'), transform=test_preprocess)
         
         self.template = imagenet_templates
         self.classnames = imagenet_classes

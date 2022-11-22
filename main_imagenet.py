@@ -2,6 +2,7 @@ import os
 import random
 import argparse
 import yaml
+import numpy as np
 from tqdm import tqdm
 
 import torch
@@ -110,6 +111,43 @@ def run_tip_adapter_F(cfg, cache_keys, cache_values, test_features, test_labels,
     _ = search_hp(cfg, affinity, cache_values, test_features, test_labels, clip_weights, adapter=adapter)
 
 
+def run_tip_adapter_knn(cfg, cache_keys, cache_values, index, test_features, test_labels, clip_weights):
+    
+    # Zero-shot CLIP
+    clip_logits = 100. * test_features @ clip_weights
+    acc = cls_acc(clip_logits, test_labels)
+    print("\n**** Zero-shot CLIP's test accuracy: {:.2f}. ****\n".format(acc))
+
+    # Tip-Adapter
+    beta, alpha, gamma = cfg['init_beta'], cfg['init_alpha'], cfg['init_gamma']
+    
+    affinity = test_features @ cache_keys
+    cache_logits = ((-1) * (beta - beta * affinity)).exp() @ cache_values
+
+    tip_logits = clip_logits + cache_logits * alpha
+    acc = cls_acc(tip_logits, test_labels)
+    print("**** Tip-Adapter's test accuracy: {:.2f}. ****\n".format(acc))
+
+    topk = cfg['topk']
+    test_embeddings = np.array(test_features.cpu().detach(), dtype=np.float32)
+    D, I = index.search(test_embeddings, topk)
+    D = torch.from_numpy(D).to(test_features.device)
+
+    knn_logits = torch.full((clip_logits.shape[0], clip_logits.shape[1]), 0.).to(test_features.device)
+
+    for i in range(clip_logits.shape[0]):
+        soft_knn_i = torch.softmax(D[i], dim=-1)   # 1 x topk
+        for j in range(topk):
+            knn_logits[i][I[i][j] // cfg['shots']] += soft_knn_i[j]
+    
+    tip_knn_logits = clip_logits + cache_logits * alpha + knn_logits * gamma
+    acc = cls_acc(tip_knn_logits, test_labels)
+    print("**** Tip-Adapter-knn's test accuracy: {:.2f}. ****\n".format(acc))
+
+    # Search Hyperparameters
+    _ = search_hp(cfg, cache_keys, cache_values, test_features, test_labels, clip_weights)
+
+
 def main():
 
     # Load config file
@@ -149,6 +187,10 @@ def main():
     print("\nConstructing cache model by few-shot visual features and labels.")
     cache_keys, cache_values = build_cache_model(cfg, clip_model, train_loader_cache)
 
+    # Construct knn datastore
+    print("\nConstructing knn datastore.")
+    index = build_knn_datastore(cfg, cache_keys, cache_values)
+
     # Pre-load test features
     print("\nLoading visual features and labels from test set.")
     test_features, test_labels = pre_load_features(cfg, "test", clip_model, test_loader)
@@ -156,8 +198,11 @@ def main():
     # ------------------------------------------ Tip-Adapter ------------------------------------------
     run_tip_adapter(cfg, cache_keys, cache_values, test_features, test_labels, clip_weights)
 
-    # ------------------------------------------ Tip-Adapter-F ------------------------------------------
+    # ------------------------------------------ Tip-Adapter-F ----------------------------------------
     run_tip_adapter_F(cfg, cache_keys, cache_values, test_features, test_labels, clip_weights, clip_model, train_loader_F)
+
+    # ------------------------------------------ Tip-Adapter-knn --------------------------------------
+    run_tip_adapter_knn(cfg, cache_keys, cache_values, index, test_features, test_labels, clip_weights)
            
 
 if __name__ == '__main__':

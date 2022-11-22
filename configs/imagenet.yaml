@@ -1,5 +1,5 @@
 # ------ root_path/dataset_name ------
-root_path: ''
+root_path: '/newdisk2/oyx/ILSVRC/Data/CLS-LOC/'
 
 
 # ------ Load Cache and Features ------
@@ -8,6 +8,11 @@ load_pre_feat: False
 
 # load_cache: True
 # load_pre_feat: True
+
+
+# ------ knn datastore  ------
+knn_mode: True
+topk: 8
 
 
 # ------ Hyperparamters ------
@@ -19,6 +24,7 @@ search_step: [200, 20]
 
 init_beta: 1
 init_alpha: 1.17
+init_gamma: 1
 
 
 # ------ Basic Config ------
@@ -27,5 +33,5 @@ shots: 16
 backbone: 'RN50'
 
 lr: 0.001
-augment_epoch: 10
+augment_epoch: 1
 train_epoch: 20
