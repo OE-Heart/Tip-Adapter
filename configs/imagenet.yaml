@@ -3,15 +3,16 @@ root_path: '/newdisk2/oyx/ILSVRC/Data/CLS-LOC/'
 
 
 # ------ Load Cache and Features ------
-load_cache: False
-load_pre_feat: False
+# load_cache: False
+# load_pre_feat: False
 
-# load_cache: True
-# load_pre_feat: True
+load_cache: True
+load_pre_feat: True
 
 
 # ------ knn datastore  ------
-knn_mode: True
+# knn_mode: True
+knn_mode: False
 topk: 8
 
 
@@ -19,8 +20,8 @@ topk: 8
 search_hp: True
 # search_hp: False
 
-search_scale: [7, 3]
-search_step: [200, 20]
+search_scale: [7, 3, 5]
+search_step: [80, 20, 40]
 
 init_beta: 1
 init_alpha: 1.17
@@ -33,5 +34,5 @@ shots: 16
 backbone: 'RN50'
 
 lr: 0.001
-augment_epoch: 1
+augment_epoch: 10
 train_epoch: 20

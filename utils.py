@@ -1,5 +1,6 @@
 from tqdm import tqdm
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
@@ -109,34 +110,72 @@ def pre_load_features(cfg, split, clip_model, loader):
     return features, labels
 
 
-def search_hp(cfg, cache_keys, cache_values, features, labels, clip_weights, adapter=None):
+def search_hp(cfg, cache_keys, cache_values, test_features, test_labels, clip_weights, adapter=None, datastore=None):
 
     if cfg['search_hp'] == True:
     
         beta_list = [i * (cfg['search_scale'][0] - 0.1) / cfg['search_step'][0] + 0.1 for i in range(cfg['search_step'][0])]
         alpha_list = [i * (cfg['search_scale'][1] - 0.1) / cfg['search_step'][1] + 0.1 for i in range(cfg['search_step'][1])]
+        if cfg['knn_mode'] == True:
+            gamma_list = [i * (cfg['search_scale'][2] - 0.1) / cfg['search_step'][2] + 0.1 for i in range(cfg['search_step'][2])]
 
         best_acc = 0
-        best_beta, best_alpha = 0, 0
+        best_beta, best_alpha, best_gamma = 0, 0, 0
+
+        clip_logits = 100. * test_features @ clip_weights
 
         for beta in beta_list:
             for alpha in alpha_list:
                 if adapter:
-                    affinity = adapter(features)
+                    affinity = adapter(test_features)
                 else:
-                    affinity = features @ cache_keys
+                    affinity = test_features @ cache_keys
 
                 cache_logits = ((-1) * (beta - beta * affinity)).exp() @ cache_values
-                clip_logits = 100. * features @ clip_weights
-                tip_logits = clip_logits + cache_logits * alpha
-                acc = cls_acc(tip_logits, labels)
+
+                if cfg['knn_mode'] == True:
+                    topk = cfg['topk']
+                    test_embeddings = np.array(test_features.cpu().detach(), dtype=np.float32)
+                    D, I = datastore.search(test_embeddings, topk)
+                    D = torch.from_numpy(D).to(test_features.device)
+
+                    knn_logits = torch.full((clip_logits.shape[0], clip_logits.shape[1]), 0.).to(test_features.device)
+
+                    for i in range(clip_logits.shape[0]):
+                        soft_knn_i = torch.softmax(D[i], dim=-1)
+                        for j in range(topk):
+                            knn_logits[i][I[i][j] // cfg['shots']] += soft_knn_i[j]
+
+                    for gamma in gamma_list:
+                        tip_knn_logits = clip_logits + cache_logits * alpha + knn_logits * gamma
+                        acc = cls_acc(tip_knn_logits, test_labels)
+
+                        if acc > best_acc:
+                            print("New best setting, beta: {:.2f}, alpha: {:.2f}, gamma: {:.2f}; accuracy: {:.2f}".format(beta, alpha, gamma, acc))
+                            best_acc = acc
+                            best_beta = beta
+                            best_alpha = alpha
+                            best_gamma = gamma
+                        
+                        tip_knn_logits = tip_knn_logits.cpu()
+                else:
+                    tip_logits = clip_logits + cache_logits * alpha
+                    acc = cls_acc(tip_logits, test_labels)
             
-                if acc > best_acc:
-                    print("New best setting, beta: {:.2f}, alpha: {:.2f}; accuracy: {:.2f}".format(beta, alpha, acc))
-                    best_acc = acc
-                    best_beta = beta
-                    best_alpha = alpha
+                    if acc > best_acc:
+                        print("New best setting, beta: {:.2f}, alpha: {:.2f}; accuracy: {:.2f}".format(beta, alpha, acc))
+                        best_acc = acc
+                        best_beta = beta
+                        best_alpha = alpha
+                    
+                    tip_logits = tip_logits.cpu()
+
+                cache_logits = cache_logits.cpu()
 
         print("\nAfter searching, the best accuarcy: {:.2f}.\n".format(best_acc))
+        print("After searching, the best setting, beta: {:.2f}, alpha: {:.2f}, gamma: {:.2f}.\n".format(best_beta, best_alpha, best_gamma))
 
-    return best_beta, best_alpha
+        return best_beta, best_alpha, best_gamma
+
+    else:
+        return cfg['init_beta'], cfg['init_alpha'], cfg['init_gamma']
